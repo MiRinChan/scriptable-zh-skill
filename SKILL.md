@@ -1,15 +1,17 @@
 ---
 name: scriptable
-description: 编写、审查、调试和解释 Scriptable 的 JavaScript 自动化脚本。覆盖桌面与锁屏组件、WebView 主界面与事件桥、快捷指令、共享表单、URL Scheme、通知、网络请求、文件、钥匙串、日历、提醒事项、通讯录、定位、照片、表格、绘图和 XML；在设计组件或 WebView 信息层级、处理刷新与缓存、选择 Scriptable API、核对签名、处理运行环境差异或排查权限与界面问题时使用。
+description: 编写、审查、调试和解释 Scriptable 的 JavaScript 自动化脚本。覆盖依据 Apple Human Interface Guidelines 设计的桌面与锁屏组件、WebView 主界面与事件桥，以及快捷指令、共享表单、URL Scheme、通知、网络请求、文件、钥匙串、日历、提醒事项、通讯录、定位、照片、表格、绘图和 XML；在设计或审查组件与 WebView、处理刷新与缓存、选择 Scriptable API、核对签名、处理运行环境差异或排查权限与界面问题时使用。
 ---
 
 # Scriptable 开发
 
 ## 先读取对应参考
 
-处理桌面组件、锁屏组件或组件附带的详情页时，先完整读取 [references/widgets.md](references/widgets.md)。
+设计或审查桌面组件、锁屏组件和 WebView 界面时，先完整读取 [references/apple-ui-design.md](references/apple-ui-design.md)，把 Apple HIG 转换为 Scriptable 可以执行和验证的规则。
 
-使用 WebView 构建主界面、详情页、交互式工具或 JavaScript 事件桥时，先完整读取 [references/webview-main-interface.md](references/webview-main-interface.md)。组件点击后打开 WebView 时，同时读取组件和 WebView 两份参考。
+处理桌面组件、锁屏组件或组件附带的详情页时，同时完整读取 [references/widgets.md](references/widgets.md)。
+
+使用 WebView 构建主界面、详情页、交互式工具或 JavaScript 事件桥时，同时完整读取 [references/webview-main-interface.md](references/webview-main-interface.md)。组件点击后打开 WebView 时，读取以上三份参考。
 
 需要核对类名、成员、参数、返回类型、废弃接口或运行限制时，读取 [references/api-reference.md](references/api-reference.md)。该文件超过 2000 行，先用以下模式定位，再读取相关小节。
 
@@ -89,7 +91,7 @@ try {
 
 只在 `WebView` 页面内使用 DOM。把外部值放入 HTML 文本和属性前进行 HTML 编码，把外部值放入页面 JavaScript 前使用 `JSON.stringify()`。
 
-使用 `shouldAllowRequest` 限制页面允许访问的主机和 URL Scheme。页面动作需要回传主脚本时，优先采用等待事件的桥接方式。只有确认目标 Scriptable 版本存在回调生命周期问题时才使用轮询，并设置停止条件和较低频率。
+远程页面使用 `shouldAllowRequest` 限制主机和 URL Scheme。自包含页面只有在真机确认内部主文档 URL 后才设置请求过滤，不能让过滤规则拦截 `loadHTML()`。页面动作需要回传主脚本时，先验证等待式事件桥在目标 Scriptable 版本中的展示、重载和关闭行为。出现空白页或长期回调失效时，使用有停止条件的低频轮询。
 
 为详情页保留系统文字缩放和页面缩放。给进度、加载状态、错误提示和可点击非按钮元素添加可访问名称、状态和键盘操作。支持 `prefers-reduced-motion`，并在浅色和深色外观中检查对比度。
 

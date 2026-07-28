@@ -1,12 +1,14 @@
 # Scriptable WebView 主界面最佳实践
 
+先按 [Apple UI 设计规范](apple-ui-design.md) 确定界面目的、信息层级、文字、颜色、控件、状态和验证范围。本文件补充 WebView 的数据、安全和生命周期边界。
+
 ## 目录
 
 - [选择页面类型](#选择页面类型)
 - [保持单向数据流](#保持单向数据流)
 - [构建安全的 HTML](#构建安全的-html)
 - [限制导航和资源请求](#限制导航和资源请求)
-- [使用等待式事件桥](#使用等待式事件桥)
+- [选择兼容的事件桥](#选择兼容的事件桥)
 - [管理页面生命周期](#管理页面生命周期)
 - [安排主界面内容](#安排主界面内容)
 - [适配尺寸和外观](#适配尺寸和外观)
@@ -22,7 +24,7 @@
 
 | 页面类型 | 加载方式 | 请求规则 |
 | --- | --- | --- |
-| 脚本生成的自包含主界面 | `loadHTML()` | 默认不访问网络，只允许页面运行所需的内部 URL |
+| 脚本生成的自包含主界面 | `loadHTML()` | 不加载外部资源；请求过滤需先验证内部主文档 URL |
 | 随脚本分发的 HTML、CSS 和图片 | `loadFile()` | 只允许文件目录内的资源和明确外部主机 |
 | 已知远程页面 | `loadURL()` 或 `loadRequest()` | 只允许业务需要的协议、主机和跳转 |
 | 大型静态图片或文档 | `loadFile()` 或 `loadHTML()` | 限制文件来源和大小 |
@@ -76,7 +78,7 @@ function jsonForInlineScript(value) {
 }
 ```
 
-自包含页面可以加入内容安全策略。根据页面实际资源调整允许项。
+自包含页面可以加入内容安全策略。先确认不带策略的最小页面能在目标 Scriptable 版本中展示，再根据页面实际资源逐项增加允许项。
 
 ```html
 <meta
@@ -85,34 +87,33 @@ function jsonForInlineScript(value) {
 >
 ```
 
-内容安全策略不能替代输出编码和 `shouldAllowRequest`。三项规则处理的失败位置不同。
+内容安全策略不能替代输出编码。启用后需要验证首次展示、页面重载、内联样式、内联脚本和图片。出现空白页时先移除策略确认基线，再逐项定位不兼容的指令。
 
 ## 限制导航和资源请求
 
-Scriptable 的 `WebView.shouldAllowRequest` 默认允许所有请求。自包含页面只允许实际需要的内部 URL。
+Scriptable 的 `WebView.shouldAllowRequest` 默认允许所有请求。远程页面必须按协议和主机设置允许列表。
 
 ```javascript
-function allowSelfContainedRequest(request) {
+function allowPortalRequest(request) {
   const url = request && request.url ? String(request.url) : ""
-  return url === "" ||
-    url === "about:blank" ||
-    url.indexOf("data:") === 0 ||
-    url.indexOf("blob:") === 0
+  return url.indexOf("https://portal.example.com/") === 0
 }
 
 const webView = new WebView()
-webView.shouldAllowRequest = allowSelfContainedRequest
+webView.shouldAllowRequest = allowPortalRequest
 ```
 
-远程页面应解析并比较协议和主机。页面需要 CDN、认证跳转或图片主机时，逐个加入允许列表，并在真机检查被拒绝请求。不要为了修复缺失资源而允许所有 HTTP、HTTPS 或自定义 Scheme。
+自包含页面没有链接、表单和外部资源时，可以不设置 `shouldAllowRequest`。需要设置时，先在目标设备记录 `loadHTML()` 实际产生的内部主文档 URL，再加入规则。不要假定所有版本都使用完全相同的 `about:blank`、`data:` 或内部 Scheme；拦截主文档会直接产生空白页。
+
+远程页面需要 CDN、认证跳转或图片主机时，逐个加入允许列表，并在真机检查被拒绝请求。不要为了修复缺失资源而允许所有 HTTP、HTTPS 或自定义 Scheme。
 
 `loadRequest()` 会使用设置的方法、正文和请求头，但不会调用该 `Request` 的 `onRedirect`。需要限制 WebView 后续请求时，仍要设置 `shouldAllowRequest`。
 
 凭据只发送给预期主机。远程页面跳转到未允许主机时停止导航，并向用户显示可以理解的错误。
 
-## 使用等待式事件桥
+## 选择兼容的事件桥
 
-Scriptable 官方接口支持 `evaluateJavaScript(code, true)`。该 Promise 会等待页面调用全局 `completion(value)`。使用一次等待处理一个 action，避免每隔几百毫秒查询 DOM 或全局变量。
+Scriptable 官方接口支持 `evaluateJavaScript(code, true)`。该 Promise 会等待页面调用全局 `completion(value)`。先在目标 Scriptable 版本验证首次展示、页面重载、连续操作和关闭页面。验证通过后，使用一次等待处理一个 action。
 
 页面端保存一个 action 队列和一个等待中的 resolver。
 
@@ -172,6 +173,49 @@ function normalizeAction(value) {
 ```
 
 页面重载会销毁旧的队列和 resolver。主脚本在重载完成后重新调用 `waitForAction()`。目标 Scriptable 版本仍需真机验证关闭页面时 Promise 的结束行为。
+
+如果等待期间出现空白页、页面重载后失效或关闭页面后 Promise 不结束，改用页面队列和低频轮询。轮询间隔使用 400 到 750 毫秒，并与 `present()` 竞争，页面关闭后停止。
+
+```javascript
+async function takeAction(webView) {
+  return await webView.evaluateJavaScript(`
+    (() => {
+      const queue = window.__scriptableActions
+      if (!Array.isArray(queue) || queue.length === 0) return null
+      return queue.shift()
+    })()
+  `, false)
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => {
+    Timer.schedule(milliseconds, false, resolve)
+  })
+}
+
+const presentation = webView.present(true).then(
+  () => ({ type: "closed", error: null }),
+  (error) => ({ type: "closed", error })
+)
+
+while (true) {
+  const event = await Promise.race([
+    sleep(500).then(() => ({ type: "tick" })),
+    presentation
+  ])
+  if (event.type === "closed") break
+
+  let action = null
+  try {
+    action = normalizeAction(await takeAction(webView))
+  } catch (error) {
+    continue
+  }
+  if (action) await handleAction(action)
+}
+```
+
+不要同时保留等待 resolver 和轮询。页面队列最多保留一个未处理动作，动作执行期间禁用对应控件。
 
 ## 管理页面生命周期
 
@@ -280,7 +324,7 @@ while (true) {
 
 ## 控制性能和复杂度
 
-- 使用事件桥等待点击，不运行常驻短轮询。
+- 目标版本支持时使用等待式事件桥。兼容轮询使用 400 到 750 毫秒间隔，并随页面关闭停止。
 - 把网络和文件工作留在主脚本中，页面不重复请求相同数据。
 - 重载整页前判断局部 DOM 更新是否足够。结构和数据同时变化时，整页重载更容易保持一致。
 - 避免大型 Base64 图片、未使用的 CSS、重复图标和长响应对象。
@@ -298,7 +342,7 @@ while (true) {
 - 正常数据、长文本、零值、无效值、缓存数据和跨日缓存。
 - 刷新成功、刷新失败、连续点击、页面重载和操作中关闭页面。
 - 未知 action、被拒绝导航、远程跳转和资源主机缺失。
-- 内容安全策略启用后的样式、脚本和图片。
+- 内容安全策略和请求过滤分别启用后的首次展示、重载、样式、脚本和图片。
 
 普通浏览器可以检查 HTML、CSS、DOM 事件和基本可访问性。`WebView`、`completion()`、`shouldAllowRequest`、系统关闭行为和 Scriptable 权限必须在目标 iPhone 或 iPad 上验证。
 
@@ -307,10 +351,10 @@ while (true) {
 - [ ] 自包含主界面和远程网页使用不同 WebView。
 - [ ] 页面只接收显示所需字段，不包含秘密。
 - [ ] HTML 文本与属性经过编码，页面 JavaScript 参数经过 JSON 编码。
-- [ ] 自包含页面限制资源请求并设置合适的内容安全策略。
+- [ ] 自包含页面没有外部导航；启用请求过滤或内容安全策略时已通过真机首次展示和重载验证。
 - [ ] 远程页面限制协议、主机、资源和跳转。
 - [ ] action 使用固定集合，主脚本再次校验。
-- [ ] 事件桥使用等待式 callback，没有短周期轮询。
+- [ ] 事件桥已在目标版本验证；兼容轮询具有停止条件且间隔不低于 400 毫秒。
 - [ ] 页面关闭、桥接错误和页面重载有明确处理。
 - [ ] 主数值、数据时间和主要动作位于第一屏。
 - [ ] 同一事实没有在主卡片和详情列表中重复。
