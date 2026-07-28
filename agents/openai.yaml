@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scriptable 开发"
+  short_description: "编写、审查和验证 Scriptable 组件与 WebView 主界面"
+  default_prompt: "Use $scriptable to build and verify a Scriptable widget or WebView main interface."
