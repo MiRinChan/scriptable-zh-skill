@@ -1,6 +1,6 @@
 ---
 name: scriptable
-description: 编写、审查、调试和解释 Scriptable 的 JavaScript 自动化脚本。覆盖依据 Apple Human Interface Guidelines 设计的桌面与锁屏组件、WebView 主界面与事件桥，以及快捷指令、共享表单、URL Scheme、通知、网络请求、文件、钥匙串、日历、提醒事项、通讯录、定位、照片、表格、绘图和 XML；在设计或审查组件与 WebView、处理刷新与缓存、选择 Scriptable API、核对签名、处理运行环境差异或排查权限与界面问题时使用。
+description: 编写、审查、调试、解释和交付 Scriptable 的 JavaScript 自动化脚本，并导入、编辑或导出 `.scriptable` 文件。覆盖依据 Apple Human Interface Guidelines 设计的桌面与锁屏组件、WebView 主界面与事件桥，以及快捷指令、共享表单、URL Scheme、通知、网络请求、文件、钥匙串、日历、提醒事项、通讯录、定位、照片、表格、绘图和 XML；在设计或审查组件与 WebView、处理刷新与缓存、选择 Scriptable API、核对签名、处理运行环境差异、排查权限与界面问题或准备 Scriptable 可导入成品时使用。
 ---
 
 # Scriptable 开发
@@ -20,6 +20,28 @@ rg -n '^### \[?(ListWidget|WidgetStack|WidgetText|Request|WebView|FileManager|Ke
 ```
 
 遇到文档和目标设备行为不一致时，核对当前 [Scriptable 官方文档](https://docs.scriptable.app/)，并以目标设备实测为准。
+
+## 编辑和交付脚本文件
+
+把 `.js` 作为编辑期间的源文件和默认成品。收到 `.scriptable` 文件时，先把 JSON 顶层 `script` 字符串无损提取到同名 `.js` 再编辑，不要直接修改 JSON 中经过转义的长字符串。除非用户明确要求最终成品可直接导入 Scriptable，否则不要生成或更新 `.scriptable` 文件。
+
+用户要求 `.scriptable` 成品时，保留最终 `.js` 源文件，并使用 JSON 序列化器把它封装为 UTF-8 JSON。容器包含以下字段。
+
+- `always_run_in_app`：布尔值；编辑现有成品时默认保留。
+- `icon`：包含字符串字段 `color` 和 `glyph`；保留用户明确指定的颜色。
+- `name`：Scriptable 中显示的脚本名，通常与文件名去掉扩展名后相同。
+- `script`：最终 `.js` 的完整源码字符串，不是路径、Base64 或源码数组。
+- `share_sheet_inputs`：数组；编辑现有成品时保留，没有需求时使用空数组。
+
+未明确要求其他图标时，把 `icon.glyph` 设为 `"magic"`。源码顶部只保留一份与 `icon` 一致的 Scriptable 元数据头；颜色使用实际的 `icon.color`。
+
+```javascript
+// Variables used by Scriptable.
+// These must be at the very top of the file. Do not edit.
+// icon-color: teal; icon-glyph: magic;
+```
+
+不要在封装时叠加旧的 `icon-color` 或 `icon-glyph` 头。交付前重新解析 JSON，检查字段类型、`name`、图标元数据，并确认解析得到的 `script` 与最终 `.js` 内容完全相同。
 
 ## 按运行环境确定输入和输出
 

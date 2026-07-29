@@ -8,6 +8,8 @@
 - [为每个尺寸单独设计](#为每个尺寸单独设计)
 - [安排信息层级](#安排信息层级)
 - [处理颜色、文字和布局](#处理颜色文字和布局)
+- [处理锁屏组件背景](#处理锁屏组件背景)
+- [处理图片清晰度和内存](#处理图片清晰度和内存)
 - [处理刷新、网络和缓存](#处理刷新网络和缓存)
 - [处理交互和详情页](#处理交互和详情页)
 - [提供完整状态](#提供完整状态)
@@ -65,6 +67,99 @@
 复用 `SFSymbol` 和已缩小的图片。避免原尺寸照片、大型背景图、循环创建 `DrawContext` 和保留不再使用的大型 JSON。Scriptable 官方文档明确指出组件进程存在内存限制。
 
 锁屏组件预览只是估计。实际壁纸和色调会改变结果。inline 只保留一个图片和一个文字元素，文案按最窄情况设计。
+
+## 处理锁屏组件背景
+
+先为锁屏组件选择透明或系统自适应背景，不要默认复用桌面组件的自定义背景。`ListWidget` 未设置 `backgroundColor` 时，桌面组件默认使用实色，锁屏组件默认透明。`addAccessoryWidgetBackground = true` 添加随锁屏环境变化的系统自适应背景，默认值为 `false`；它不是桌面背景色、渐变或背景图的替代写法。
+
+按 family 在套用桌面背景前分流，让三种锁屏 builder 提前返回。
+
+```javascript
+function createWidget(result, family) {
+  if (family === "accessoryInline") {
+    return createAccessoryInlineWidget(result)
+  }
+  if (family === "accessoryCircular") {
+    return createAccessoryCircularWidget(result, false)
+  }
+  if (family === "accessoryRectangular") {
+    return createAccessoryRectangularWidget(result, false)
+  }
+
+  const widget = new ListWidget()
+  applyHomeScreenBackground(widget)
+  return buildHomeScreenWidget(widget, result, family)
+}
+
+function createAccessoryRectangularWidget(result, useSystemBackground) {
+  const widget = new ListWidget()
+  widget.addAccessoryWidgetBackground = Boolean(useSystemBackground)
+  widget.setPadding(8, 10, 8, 10)
+  // 构建只属于 accessoryRectangular 的紧凑内容。
+  return widget
+}
+```
+
+保持以下边界。
+
+- 不对 accessory builder 调用设置桌面 `backgroundColor`、`backgroundImage` 或 `backgroundGradient` 的共享 helper。
+- `accessoryInline` 保持无背景，并只安排一个图片和一个短文字。
+- 圆形和矩形需要容器时才显式启用 `addAccessoryWidgetBackground`，并在目标锁屏上分别比较 `true` 和 `false`。不要通过设置任意半透明颜色模拟系统背景。
+- 第一版优先不设置锁屏文字 `textColor`、图片 `tintColor` 和局部 stack `backgroundColor`，让系统根据壁纸与锁屏色调决定外观。确需品牌色、轨道或状态色时，再逐项加入并验证；状态仍需文字表达。
+- 先解析一次 family，再把它显式传给正常、缓存、首次配置、认证失效、离线和数据无效 builder。不要让通用 `createMessageWidget()` 无条件套用桌面背景，否则正常态透明而错误态会突然出现实心矩形。
+- `config.runsInWidget` 不能区分桌面和锁屏。真实运行可结合 `config.runsInAccessoryWidget` 与 `config.widgetFamily`；应用内预览或 URL 指定 family 时，以已经解析的 family 参数为准。
+
+分别确定两种有独立容器形态的锁屏 family 内边距。
+
+- `accessoryCircular` 第一版不调用 `setPadding()`，保留 `ListWidget` 的系统默认内边距。共享 helper 曾设置过内边距时，使用 `useDefaultPadding()` 恢复默认值，不要用四个零代替默认值。
+- `accessoryRectangular` 可以把 `setPadding(8, 10, 8, 10)` 作为紧凑布局的首版起点；参数依次为 top、leading、bottom、trailing。不要把这组数值复制给圆形或桌面组件。
+- 把内边距计入固定进度条、图片和 stack 的宽度预算。文字截断时先删除次要内容、缩短文案或调整布局，不要直接把内边距压到零。
+- 透明背景和 `addAccessoryWidgetBackground = true` 的视觉边界不同。切换背景策略后重新检查上下、leading 和 trailing 留白，不要假定同一组数值视觉效果相同。
+- 正常、缓存和错误 builder 使用同一 family 的内边距策略。不要让通用错误组件退回桌面的 `setPadding(16, 16, 16, 16)`，造成状态切换时内容跳位或锁屏布局被挤压。
+
+应用内 accessory 预览不会准确复现壁纸和锁屏色调。把透明背景和系统自适应背景分别放到真实锁屏，在浅色、深色、复杂壁纸、不同色调、Clear 外观和 Always-On 下检查。对正常、缓存和每一种错误态执行同一矩阵。
+
+## 处理图片清晰度和内存
+
+Scriptable 官方只说明组件进程存在内存限制，没有承诺固定的图片尺寸上限。社区实测曾出现同一张 PNG 在应用内保持原分辨率、放进实际组件后却被自动缩小到约 500 px 的情况。把 500 px 和失败后尝试的 300 px 当作目标设备上的经验起点，不要写成所有版本和设备都遵守的硬限制。
+
+优先避免让组件加载大图后再裁剪。
+
+1. 最优方案是在服务器或图片生成阶段按日期、内容和组件 family 直接输出最终裁剪图。不要下载包含一周内容的大图集，再让组件每天裁剪其中一块。
+2. 无法在服务器处理时，在 `config.runsInApp` 为真时完成解码、裁剪和缩放，把每个 family 需要的最终小图保存到应用与组件都能读取的位置。组件运行时只读取已经处理好的文件。
+3. 缓存键包含源图片版本、裁剪区域、family 和目标尺寸。使用写入该路径的同一个 `FileManager` 读取；iCloud 文件在读取前等待下载。
+4. 一次只处理一张原图和一个输出，不在组件进程中同时保留原图、图集和多个裁剪结果。
+
+直接读取文件后设置 `backgroundImage` 仍然模糊时，可以尝试 `FileManager.read()`、`Image.fromData()` 和 `DrawContext` 的手动重绘路径。
+
+```javascript
+function redrawForWidget(image, maxCanvasLength = 500) {
+  if (!image) throw new Error("图片无法解码")
+
+  const screenScale = Math.max(1, Device.screenScale())
+  const sourceWidth = image.size.width / screenScale
+  const sourceHeight = image.size.height / screenScale
+  const scale = Math.min(
+    1,
+    maxCanvasLength / Math.max(sourceWidth, sourceHeight)
+  )
+  const width = Math.max(1, Math.round(sourceWidth * scale))
+  const height = Math.max(1, Math.round(sourceHeight * scale))
+
+  const context = new DrawContext()
+  context.size = new Size(width, height)
+  context.respectScreenScale = true
+  context.opaque = false
+  context.drawImageInRect(image, new Rect(0, 0, width, height))
+  return context.getImage()
+}
+```
+
+`Image.size` 使用像素；`DrawContext.respectScreenScale = true` 会让实际输出尺寸再乘以设备的 2× 或 3× 屏幕缩放。因此示例中的 500 是逻辑画布长边，不是最终文件的严格像素上限。需要严格控制输出像素和内存时，把 `respectScreenScale` 设为 `false` 并直接使用目标像素尺寸；需要 Retina 清晰度时保留 `true`，但把放大后的实际输出计入内存预算。图片不需要透明度时可使用不透明画布。
+
+不要照搬 `newWidth - 1` 之类未经说明的经验偏移。宽高应四舍五入并至少为 1。若 500 的画布在目标设备上仍触发模糊、压缩或内存错误，逐步降到 300，或改用应用内预处理和分图方案。手动重绘仍需先解码原图，不能消除解码原图时的内存峰值。
+
+在应用内预览和真实桌面组件中分别检查同一资源。记录原图、预处理输出和缓存文件的尺寸及字节数，并覆盖冷启动、每个支持的 family、不同屏幕缩放和多次刷新。只有 `presentSmall()` 等应用内预览清晰，不能证明组件进程不会再次压缩。
 
 ## 处理刷新、网络和缓存
 
@@ -189,7 +284,12 @@ await widget[method]()
 - [ ] 普通网络错误不会触发凭据覆盖。
 - [ ] 新凭据验证成功后才写入钥匙串。
 - [ ] 锁屏布局不依赖颜色表达唯一含义。
+- [ ] accessory family 在桌面背景 helper 之前分流，正常态和所有错误态使用相同的背景策略。
+- [ ] 圆形和矩形的透明背景与 `addAccessoryWidgetBackground` 已在真实锁屏分别比较。
+- [ ] 圆形保留系统默认内边距，矩形从独立的紧凑内边距起步；所有状态保持一致。
 - [ ] inline 只安排一个图片和一个短文字。
+- [ ] 大图按 family 预先裁剪和缩放，真实组件与应用内预览都保持可接受的清晰度。
+- [ ] 使用 `DrawContext` 处理图片时已把 `respectScreenScale` 的 2× 或 3× 输出计入尺寸和内存预算。
 - [ ] 固定宽度经过设备矩阵验证并有未知尺寸降级。
 - [ ] URL 不包含秘密，WebView 导航受主机和协议限制。
 - [ ] WebView 允许缩放，状态和进度可被辅助功能读取。

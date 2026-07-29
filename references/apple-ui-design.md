@@ -78,7 +78,7 @@ Apple 当前设计原则可以转换为以下检查。
 - 横屏、分屏和 iPad 宽屏不能只把手机布局等比放大。
 - 支持 RTL 时翻转方向相关布局，不翻转照片、播放图标和不表示方向的图形。
 
-全屏 WebView 使用 `env(safe-area-inset-*)` 避开 Dynamic Island、圆角和 Home 指示条。页面不能横向滚动才能读完主要内容。
+全屏 WebView 使用 `env(safe-area-inset-*)` 避开 Dynamic Island、圆角和 Home 指示条。Scriptable 的 Close、Share 等宿主控件不保证包含在这些 CSS 变量内；还要按 [WebView 主界面的宿主控件避让规则](webview-main-interface.md#处理全屏安全区和宿主控件) 单独留出并真机校准。页面不能横向滚动才能读完主要内容。
 
 ## 处理文字和符号
 
@@ -206,6 +206,7 @@ Liquid Glass 会随系统版本和辅助功能设置改变。Scriptable WebView 
 - [ ] 每项内容和控件通过删除检查。
 - [ ] 控件与内容可以直接区分。
 - [ ] 组件按 family 设计，WebView 不依赖固定设备宽度。
+- [ ] 全屏 WebView 的首个标题和操作不会与 Scriptable 的 Close、Share 宿主控件重叠。
 - [ ] 使用系统字体、有限字号层级和语义明确的 SF Symbols。
 - [ ] 浅色、深色和增强对比度均可读。
 - [ ] 状态不依赖颜色、动画、声音或手势单独表达。
