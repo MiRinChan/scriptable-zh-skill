@@ -31,7 +31,14 @@ rg -n '^### \[?(ListWidget|WidgetStack|WidgetText|Request|WebView|FileManager|Ke
 - `icon`：包含字符串字段 `color` 和 `glyph`；保留用户明确指定的颜色。
 - `name`：Scriptable 中显示的脚本名，通常与文件名去掉扩展名后相同。
 - `script`：最终 `.js` 的完整源码字符串，不是路径、Base64 或源码数组。
-- `share_sheet_inputs`：数组；编辑现有成品时保留，没有需求时使用空数组。
+- `share_sheet_inputs`：数组；**该键必须存在**，没有需求时使用空数组 `[]`。实测缺失该键会导致 Scriptable 无法导入成品。
+
+`script` 字符串必须与最终 `.js` 内容逐字节一致（不含顶部的 `// Variables used by Scriptable` 元数据头，该头信息对应 `icon` 字段）。经过真机导入验证的格式要求：
+
+- 缩进 2 空格，键值对用 `"key" : value`（冒号两侧各一个空格，Apple NSJSONSerialization 风格）。
+- 字符串中的正斜杠要转义为 `\/`（JSON 序列化器默认不转义，需额外处理）。
+- `script` 值不要以换行开头（去掉模板字面量首行换行）。
+- 交付前重新解析 JSON，确认 `script` 与最终 `.js` 完全相同。若手头有应用自身导出的 `.scriptable`，可把待交付文件与其逐字节比对（仅图标颜色可不同），这是最强的导入兼容性验证。
 
 未明确要求其他图标时，把 `icon.glyph` 设为 `"magic"`。源码顶部只保留一份与 `icon` 一致的 Scriptable 元数据头；颜色使用实际的 `icon.color`。
 
