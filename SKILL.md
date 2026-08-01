@@ -40,6 +40,8 @@ rg -n '^### \[?(ListWidget|WidgetStack|WidgetText|Request|WebView|FileManager|Ke
 - `script` 值不要以换行开头（去掉模板字面量首行换行）。
 - 交付前重新解析 JSON，确认 `script` 与最终 `.js` 完全相同。若手头有应用自身导出的 `.scriptable`，可把待交付文件与其逐字节比对（仅图标颜色可不同），这是最强的导入兼容性验证。
 
+`WebView.loadFile()` 要求文件 URL，但 Scriptable 没有浏览器的 `URL` 构造函数，也没有 `URL.fileURLWithPath()` API。用本地绝对路径时，逐段编码后自行构造 URL：`"file://" + path.split("/").map(encodeURIComponent).join("/")`。这样 Unix 绝对路径会得到正确的 `file:///...` 形式，并支持空格和非 ASCII 文件名。
+
 未明确要求其他图标时，把 `icon.glyph` 设为 `"magic"`。源码顶部只保留一份与 `icon` 一致的 Scriptable 元数据头；颜色使用实际的 `icon.color`。
 
 ```javascript
